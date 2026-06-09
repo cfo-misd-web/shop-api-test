@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shop API — Test Client</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; }
+      body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+      h1 { margin-bottom: 0; }
+      .sub { color: #666; margin-top: .25rem; }
+      section { border: 1px solid #e2e2e2; border-radius: 10px; padding: 1rem 1.25rem; margin: 1rem 0; }
+      h2 { font-size: 1rem; margin: 0 0 .75rem; }
+      input, button { font: inherit; padding: .5rem .6rem; border-radius: 7px; border: 1px solid #ccc; }
+      button { cursor: pointer; background: #111; color: #fff; border-color: #111; }
+      button.ghost { background: #fff; color: #111; }
+      button:disabled { opacity: .4; cursor: not-allowed; }
+      .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+      .pill { font-size: .75rem; padding: .15rem .5rem; border-radius: 999px; background: #eee; }
+      .pill.ok { background: #d8f5d8; }
+      ul { list-style: none; padding: 0; }
+      li { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px dashed #eee; }
+      pre { background: #0d1117; color: #c9d1d9; padding: .75rem; border-radius: 8px; overflow: auto; font-size: .8rem; }
+      .total { font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <h1>Shop API</h1>
+    <p class="sub">Static test client. Auth status: <span id="auth" class="pill">signed out</span> · <a href="/test">test plan</a> · <a href="/docs">API docs</a></p>
+
+    <section>
+      <h2>1 · Account</h2>
+      <div class="row">
+        <input id="email" type="email" placeholder="email" value="tester@example.com" />
+        <input id="password" type="password" placeholder="password (min 6)" value="hunter2pw" />
+        <button id="signup">Sign up</button>
+        <button id="signin" class="ghost">Sign in</button>
+        <button id="signout" class="ghost" disabled>Sign out</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>2 · Products</h2>
+      <ul id="products"></ul>
+    </section>
+
+    <section>
+      <h2>3 · Cart</h2>
+      <ul id="cart"></ul>
+      <p class="total">Total: <span id="total">$0.00</span></p>
+      <button id="checkout" disabled>Checkout</button>
+    </section>
+
+    <section>
+      <h2>Last response</h2>
+      <pre id="log">—</pre>
+    </section>
+
+    <script>
+      // Base is same-origin; this page is served by the API itself.
+      const $ = (id) => document.getElementById(id);
+      const money = (cents) => '$' + (cents / 100).toFixed(2);
+      let token = localStorage.getItem('token') || null;
+
+      function log(label, data) {
+        $('log').textContent = label + '\n' + JSON.stringify(data, null, 2);
+      }
+
+      function setAuth(t) {
+        token = t;
+        if (t) localStorage.setItem('token', t);
+        else localStorage.removeItem('token');
+        const signedIn = Boolean(t);
+        $('auth').textContent = signedIn ? 'signed in' : 'signed out';
+        $('auth').className = 'pill' + (signedIn ? ' ok' : '');
+        $('signout').disabled = !signedIn;
+        $('checkout').disabled = !signedIn;
+        if (signedIn) loadCart();
+        else { $('cart').innerHTML = ''; $('total').textContent = '$0.00'; }
+      }
+
+      async function api(path, { method = 'GET', body } = {}) {
+        const headers = {};
+        if (body) headers['Content-Type'] = 'application/json';
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+        const data = res.status === 204 ? null : await res.json().catch(() => null);
+        log(`${method} ${path} → ${res.status}`, data);
+        if (!res.ok) throw new Error((data && data.error) || res.statusText);
+        return data;
+      }
+
+      async function loadProducts() {
+        const products = await api('/products');
+        $('products').innerHTML = '';
+        for (const p of products) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span>${p.name}</span><span>${money(p.price_cents)}</span>`;
+          $('products').appendChild(li);
+        }
+      }
+
+      async function loadCart() {
+        const cart = await api('/cart');
+        $('cart').innerHTML = '';
+        for (const line of cart.items) {
+          const li = document.createElement('li');
+          li.innerHTML = `<span>${line.name} × ${line.quantity}</span><span>${money(line.line_total_cents)}</span>`;
+          $('cart').appendChild(li);
+        }
+        $('total').textContent = money(cart.total_cents);
+      }
+
+      $('signup').onclick = async () => {
+        const r = await api('/auth/signup', { method: 'POST', body: creds() });
+        setAuth(r.token);
+      };
+      $('signin').onclick = async () => {
+        const r = await api('/auth/signin', { method: 'POST', body: creds() });
+        setAuth(r.token);
+      };
+      $('signout').onclick = () => setAuth(null);
+      $('checkout').onclick = async () => {
+        await api('/cart/checkout', { method: 'POST' });
+        loadCart();
+      };
+      const creds = () => ({ email: $('email').value, password: $('password').value });
+
+      loadProducts();
+      setAuth(token);
+    </script>
+  </body>
+</html>

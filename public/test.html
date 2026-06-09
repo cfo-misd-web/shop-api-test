@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shop API — Test Plan</title>
+    <style>
+      :root { font-family: system-ui, sans-serif; }
+      body { max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; line-height: 1.5; }
+      h1 { margin-bottom: .25rem; }
+      .sub { color: #666; margin-top: 0; }
+      nav a { margin-right: 1rem; }
+      section { border: 1px solid #e2e2e2; border-radius: 10px; padding: 1rem 1.25rem; margin: 1.25rem 0; }
+      h2 { font-size: 1.05rem; margin-top: 0; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #eee; vertical-align: top; }
+      th { background: #fafafa; }
+      td:first-child { width: 2.5rem; color: #888; }
+      code { background: #f2f2f2; padding: .1rem .35rem; border-radius: 5px; font-size: .85em; }
+      pre { background: #0d1117; color: #c9d1d9; padding: .9rem; border-radius: 8px; overflow: auto; font-size: .8rem; }
+      .mermaid { background: #fafafa; border-radius: 8px; padding: 1rem; text-align: center; }
+      .badge { display: inline-block; font-size: .75rem; padding: .15rem .55rem; border-radius: 999px; background: #d8f5d8; }
+      section.bonus { border-color: #d9a400; background: #fffaf0; }
+      section.bonus h2 { color: #a06a00; }
+      .tag { display: inline-block; font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: .1rem .5rem; border-radius: 5px; background: #d9a400; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <h1>Shop API — Test Plan</h1>
+    <p class="sub">What the tester does to verify the API end to end: sign up → get a JWT → add items → check out.</p>
+    <nav>
+      <a href="/">▶ Test client</a>
+      <a href="/docs">API docs</a>
+    </nav>
+
+    <section>
+      <h2>What you're testing</h2>
+      <p>
+        A minimal shopping API with JWT bearer auth. Test it two ways:
+      </p>
+      <ul>
+        <li><strong>Static test client</strong> (<a href="/">/</a>) — a click-through UI. No tools needed.</li>
+        <li><strong>curl</strong> — the scripted commands at the bottom.</li>
+      </ul>
+      <p>
+        The database is <code>db.sqlite</code> in the project root. For a clean slate, stop the
+        server, delete <code>db.sqlite*</code>, and start again — products are re-seeded.
+      </p>
+    </section>
+
+    <section>
+      <h2>The exact flow</h2>
+      <pre class="mermaid">
+flowchart TD
+    A([Tester opens http://localhost:3000]) --> B[Static page loads<br/>GET /products shows catalog]
+    B --> C{Have an account?}
+    C -- No --> D[Enter email + password<br/>click Sign up]
+    C -- Yes --> E[Enter email + password<br/>click Sign in]
+    D --> F[POST /auth/signup<br/>returns JWT]
+    E --> G[POST /auth/signin<br/>returns JWT]
+    F --> H[Page stores token<br/>status = signed in]
+    G --> H
+    H --> I[Click Add on a product<br/>POST /cart/items + Bearer token]
+    I --> J[GET /cart shows line items + total]
+    J --> K{Add more?}
+    K -- Yes --> I
+    K -- No --> L[Click Checkout<br/>POST /cart/checkout + Bearer token]
+    L --> M[201 returns order_id + total<br/>cart is emptied]
+    M --> N([Test passes])
+
+    I -. without token .-> X[401 Missing Bearer token]
+    L -. empty cart .-> Y[400 Cart is empty]
+      </pre>
+    </section>
+
+    <section>
+      <h2>Steps to perform (static client)</h2>
+      <p>Do these in order. The client shows the raw API response for every action, so you can confirm each status code.</p>
+      <table>
+        <thead><tr><th>#</th><th>What you do</th><th>Expected result</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Open <code>http://localhost:3000</code></td><td>Page loads; Products lists 4 items with prices; auth badge says <em>signed out</em>.</td></tr>
+          <tr><td>2</td><td>Look at cart actions while signed out</td><td>The <em>Add</em> buttons and <em>Checkout</em> are disabled.</td></tr>
+          <tr><td>3</td><td>Enter email + password (≥ 6 chars), click <em>Sign up</em></td><td><code>201</code> with <code>{ id, email, token }</code>; badge flips to <em>signed in</em>; Add/Checkout enable.</td></tr>
+          <tr><td>4</td><td>Click <em>Add</em> on two different products</td><td>Each returns <code>200</code>; the Cart list and Total update.</td></tr>
+          <tr><td>5</td><td>Click <em>Add</em> on a product already in the cart</td><td>Its quantity increments (no duplicate line).</td></tr>
+          <tr><td>6</td><td>Click <em>Checkout</em></td><td><code>201</code> with <code>{ order_id, total_cents }</code>; cart empties; Total back to <code>$0.00</code>.</td></tr>
+          <tr><td>7</td><td>Click <em>Checkout</em> again (empty cart)</td><td><code>400 Cart is empty</code>.</td></tr>
+          <tr><td>8</td><td>Click <em>Sign out</em></td><td>Badge says <em>signed out</em>; cart actions disabled again.</td></tr>
+          <tr><td>9</td><td>Reload the page after signing in</td><td>You stay signed in (token in <code>localStorage</code>) and the cart reloads.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Negative / auth checks</h2>
+      <table>
+        <thead><tr><th>#</th><th>What you do</th><th>Expected result</th></tr></thead>
+        <tbody>
+          <tr><td>10</td><td>Sign in with a wrong password</td><td><code>401 Invalid credentials</code>; stays signed out.</td></tr>
+          <tr><td>11</td><td>Sign up with the same email twice</td><td>Second attempt returns <code>409 Email already registered</code>.</td></tr>
+          <tr><td>12</td><td>Sign up with a 3-char password</td><td><code>400</code> validation error.</td></tr>
+        </tbody>
+      </table>
+      <p>A run is <span class="badge">successful</span> when steps 1–12 all match their expected results.</p>
+    </section>
+
+    <section class="bonus">
+      <h2><span class="tag">Bonus</span> &nbsp;Build it yourself — no guide provided</h2>
+      <p>
+        This part is <strong>not built</strong>. You implement it yourself. There is no walkthrough,
+        no starter code, and no hints about how — those design decisions are yours.
+        Only the requirements and what we check are below.
+      </p>
+
+      <h3>Task 1 — Product page</h3>
+      <ul>
+        <li>Build a <strong>product page</strong> for an individual item.</li>
+        <li>It must render <strong>all of the product's details</strong> — every field the catalog provides, including its <strong>images</strong> (there is more than one) — laid out as a real product page, not raw JSON.</li>
+        <li>The products are already <strong>pre-seeded</strong> and their full details are available from the API. Finding and using that data is part of the task.</li>
+      </ul>
+
+      <h3>Task 2 — Ratings</h3>
+      <ul>
+        <li>A <strong>signed-in</strong> user can give a product a star rating from <strong>1 to 5</strong>.</li>
+        <li>A user has <strong>at most one</strong> rating per product. Rating the same product again <strong>updates</strong> their previous rating (it must not create a duplicate).</li>
+        <li>Each product's <strong>average rating</strong> and <strong>number of ratings</strong> are <strong>publicly viewable</strong> — anyone can see them without signing in (e.g. shown on the product page).</li>
+        <li>Invalid input is rejected: a rating outside 1–5, a non-integer, or an unknown product.</li>
+        <li>An <strong>unauthenticated</strong> attempt to <em>submit</em> a rating is rejected (viewing stays public).</li>
+        <li>Whatever endpoints you add must be documented so they appear in <a href="/docs">/docs</a>.</li>
+      </ul>
+
+      <h3>Task 3 — Comments</h3>
+      <ul>
+        <li>A <strong>signed-in</strong> user can add <strong>comments</strong> to a product (a user may leave more than one).</li>
+        <li>A product's comments are <strong>publicly viewable</strong> — anyone can read them without signing in (e.g. listed on the product page).</li>
+        <li>Each comment shows who wrote it and when.</li>
+        <li>Invalid input is rejected: an empty comment, or a comment on an unknown product.</li>
+        <li>An <strong>unauthenticated</strong> attempt to <em>post</em> a comment is rejected (reading stays public).</li>
+        <li>Whatever endpoints you add must be documented so they appear in <a href="/docs">/docs</a>.</li>
+      </ul>
+
+      <h3>How it will be checked</h3>
+      <ul>
+        <li>The product page shows the product's images, description, category and price — all of them.</li>
+        <li>Without signing in, the product's average rating, rating count, and comments are visible.</li>
+        <li>Sign in, rate a product 4, then read it back — the average reflects it and the count is 1.</li>
+        <li>Rate the same product again with 2 — the count stays 1 and the average becomes 2 (updated, not added).</li>
+        <li>A second user rates the same product 5 — the count is 2 and the average is the mean of the two.</li>
+        <li>Sending a rating of 0, 6, 3.5, or for a non-existent product returns a 4xx error.</li>
+        <li>Sign in and post a comment; it then appears in the public comment list with the author and timestamp.</li>
+        <li>Submitting a rating or comment without a bearer token returns 401.</li>
+      </ul>
+      <p>No further direction will be given. Make reasonable design choices and justify them if asked.</p>
+    </section>
+
+    <section>
+      <h2>Alternative: scripted check with curl</h2>
+      <pre>BASE=http://localhost:3000
+
+# 1. sign up and capture the JWT
+TOKEN=$(curl -s -X POST $BASE/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"curl@example.com","password":"hunter2pw"}' \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0)).token')
+
+# 2. a cart call without the token must be rejected (expect 401)
+curl -s $BASE/cart
+
+# 3. add an item, then view the cart (expect the line + total)
+curl -s -X POST $BASE/cart/items -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"productId":1,"quantity":2}'
+curl -s $BASE/cart -H "Authorization: Bearer $TOKEN"
+
+# 4. check out (expect 201 with order_id + total_cents)
+curl -s -X POST $BASE/cart/checkout -H "Authorization: Bearer $TOKEN"</pre>
+    </section>
+
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+  </body>
+</html>
