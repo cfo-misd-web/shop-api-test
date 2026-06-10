@@ -22,9 +22,11 @@ app.get('/test', (_req: Request, res: Response) => {
 // Authorization header (Bearer JWT), so it must be in Allow-Headers. We reflect
 // any localhost / 127.0.0.1 origin (any port). No `cors` package.
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+// Plus an explicit deployed frontend origin from DOMAIN (e.g. https://shop.example.com).
+const ALLOWED_ORIGIN = process.env.DOMAIN;
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && LOCALHOST_ORIGIN.test(origin)) {
+  if (origin && (LOCALHOST_ORIGIN.test(origin) || origin === ALLOWED_ORIGIN)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');

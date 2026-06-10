@@ -1,0 +1,37 @@
+# Shop API in Docker. The `seed` service resets the catalog into a shared DB
+# volume and exits; `api` waits for it to finish, then serves on :3000.
+#
+#   docker compose up --build          # seed once, then run the API
+#   docker compose run --rm seed       # re-seed on demand
+name: shop-api
+
+services:
+  seed:
+    build: .
+    image: shop-api:latest
+    command: ["node", "dist/seed.js"]
+    environment:
+      DB_PATH: /data/db.sqlite
+    volumes:
+      - shop-db:/data
+
+  api:
+    build: .
+    image: shop-api:latest
+    ports:
+      - "3000:3000"
+    # DOMAIN and JWT_SECRET come from .env; DB_PATH/PORT are fixed for the container.
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/db.sqlite
+      PORT: "3000"
+    volumes:
+      - shop-db:/data
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  shop-db:
