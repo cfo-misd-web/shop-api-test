@@ -17,7 +17,19 @@ export interface Product {
   price_cents: number;
 }
 
-export const db = new Database(fileURLToPath(new URL('../db.sqlite', import.meta.url)));
+export interface Comment {
+  id: number;
+  product_id: number;
+  user_id: number;
+  author_email: string;
+  body: string;
+  created_at: string;
+}
+
+// Defaults to db.sqlite in the project root; override with DB_PATH (used by tests
+// to point at an isolated, throwaway database).
+const dbPath = process.env.DB_PATH ?? fileURLToPath(new URL('../db.sqlite', import.meta.url));
+export const db = new Database(dbPath);
 
 // Schema. Created on first run; IF NOT EXISTS keeps it idempotent.
 db.exec(`
@@ -53,6 +65,24 @@ db.exec(`
     total_cents INTEGER NOT NULL,
     items_json  TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_comments_product ON comments(product_id);
+
+  CREATE TABLE IF NOT EXISTS ratings (
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    value      INTEGER NOT NULL CHECK (value BETWEEN 1 AND 5),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (product_id, user_id)  -- at most one rating per user per product
   );
 `);
 

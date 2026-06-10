@@ -1,12 +1,12 @@
 import express from 'express';
 import type { Request, Response } from 'express';
-import { db, type Product } from './db.js';
+import { db, type Product, type Comment } from './db.js';
 import { hashPassword, verifyPassword, signJwt, requireAuth } from './auth.js';
 import { openapi } from './openapi.js';
 
 import { fileURLToPath } from 'node:url';
 
-const app = express();
+export const app = express();
 app.use(express.json());
 
 // Static test page (vanilla JS client that drives the API end-to-end).
@@ -108,7 +108,105 @@ app.get('/products/:id', (req: Request, res: Response) => {
     res.status(404).json({ error: 'Product not found' });
     return;
   }
-  res.json(toProduct(row));
+  res.json({ ...toProduct(row), ...getRatingSummary(id) });
+});
+
+// --- Ratings -------------------------------------------------------------
+
+// Public aggregate for a product: mean rating (null when none) and how many.
+function getRatingSummary(productId: number): { average_rating: number | null; rating_count: number } {
+  const row = db
+    .prepare('SELECT AVG(value) AS avg, COUNT(*) AS count FROM ratings WHERE product_id = ?')
+    .get(productId) as { avg: number | null; count: number };
+  return {
+    average_rating: row.avg === null ? null : Math.round(row.avg * 100) / 100,
+    rating_count: row.count,
+  };
+}
+
+app.get('/products/:id/rating', (req: Request, res: Response) => {
+  const productId = resolveProductId(req, res);
+  if (productId === null) return;
+  res.json({ product_id: productId, ...getRatingSummary(productId) });
+});
+
+app.post('/products/:id/rating', requireAuth, (req: Request, res: Response) => {
+  const productId = resolveProductId(req, res);
+  if (productId === null) return;
+  const { rating } = req.body ?? {};
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    res.status(400).json({ error: 'rating must be an integer between 1 and 5' });
+    return;
+  }
+  // Upsert: a user has at most one rating per product; re-rating updates it.
+  db.prepare(
+    `INSERT INTO ratings (product_id, user_id, value) VALUES (?, ?, ?)
+     ON CONFLICT(product_id, user_id) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+  ).run(productId, req.userId!, rating);
+  res.status(201).json({ product_id: productId, your_rating: rating, ...getRatingSummary(productId) });
+});
+
+// --- Comments ------------------------------------------------------------
+
+const COMMENT_MAX_LENGTH = 2000;
+
+// Resolves a `:id` path param to an existing product id, or responds with the
+// appropriate 400/404 and returns null.
+function resolveProductId(req: Request, res: Response): number | null {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: 'Invalid product id' });
+    return null;
+  }
+  const product = db.prepare('SELECT 1 FROM products WHERE id = ?').get(id);
+  if (!product) {
+    res.status(404).json({ error: 'Product not found' });
+    return null;
+  }
+  return id;
+}
+
+app.get('/products/:id/comments', (req: Request, res: Response) => {
+  const productId = resolveProductId(req, res);
+  if (productId === null) return;
+  const comments = db
+    .prepare(
+      `SELECT c.id, c.product_id, c.user_id, u.email AS author_email,
+              c.body, c.created_at
+       FROM comments c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.product_id = ?
+       ORDER BY c.created_at DESC, c.id DESC`,
+    )
+    .all(productId) as Comment[];
+  res.json(comments);
+});
+
+app.post('/products/:id/comments', requireAuth, (req: Request, res: Response) => {
+  const productId = resolveProductId(req, res);
+  if (productId === null) return;
+  const { body } = req.body ?? {};
+  if (typeof body !== 'string' || body.trim().length === 0) {
+    res.status(400).json({ error: 'A non-empty comment body is required' });
+    return;
+  }
+  if (body.length > COMMENT_MAX_LENGTH) {
+    res.status(400).json({ error: `Comment body must be at most ${COMMENT_MAX_LENGTH} characters` });
+    return;
+  }
+  const info = db
+    .prepare('INSERT INTO comments (product_id, user_id, body) VALUES (?, ?, ?)')
+    .run(productId, req.userId!, body.trim());
+  const comment = db
+    .prepare(
+      `SELECT c.id, c.product_id, c.user_id, u.email AS author_email,
+              c.body, c.created_at
+       FROM comments c
+       JOIN users u ON u.id = c.user_id
+       WHERE c.id = ?`,
+    )
+    .get(Number(info.lastInsertRowid)) as Comment;
+  res.status(201).json(comment);
 });
 
 // --- Cart ----------------------------------------------------------------
@@ -201,8 +299,12 @@ app.get('/docs', (_req: Request, res: Response) => {
 </html>`);
 });
 
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => {
-  console.log(`Shop API listening on http://localhost:${PORT}`);
-  console.log(`Docs at http://localhost:${PORT}/docs`);
-});
+// Don't bind a port when imported by the test suite — tests start their own
+// ephemeral listener against the exported `app`.
+if (process.env.NODE_ENV !== 'test') {
+  const PORT = Number(process.env.PORT) || 3000;
+  app.listen(PORT, () => {
+    console.log(`Shop API listening on http://localhost:${PORT}`);
+    console.log(`Docs at http://localhost:${PORT}/docs`);
+  });
+}

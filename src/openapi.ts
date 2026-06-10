@@ -12,6 +12,8 @@ export const openapi = {
   tags: [
     { name: 'Auth', description: 'Sign up / sign in (returns a JWT)' },
     { name: 'Catalog', description: 'Browse products' },
+    { name: 'Ratings', description: 'Read aggregate ratings and submit your own' },
+    { name: 'Comments', description: 'Read and post product comments' },
     { name: 'Cart', description: 'Manage your cart and check out' },
   ],
   components: {
@@ -48,6 +50,35 @@ export const openapi = {
           },
           category: { type: 'string', example: 'Kitchen' },
           price_cents: { type: 'integer', example: 1299 },
+          average_rating: {
+            type: ['number', 'null'],
+            description: 'Mean of all ratings (null if none). Included on the product detail response.',
+            example: 4.5,
+          },
+          rating_count: {
+            type: 'integer',
+            description: 'Number of ratings. Included on the product detail response.',
+            example: 2,
+          },
+        },
+      },
+      RatingSummary: {
+        type: 'object',
+        properties: {
+          product_id: { type: 'integer', example: 1 },
+          average_rating: { type: ['number', 'null'], example: 4.5 },
+          rating_count: { type: 'integer', example: 2 },
+        },
+      },
+      Comment: {
+        type: 'object',
+        properties: {
+          id: { type: 'integer', example: 1 },
+          product_id: { type: 'integer', example: 1 },
+          user_id: { type: 'integer', example: 1 },
+          author_email: { type: 'string', format: 'email', example: 'alice@example.com' },
+          body: { type: 'string', example: 'Great mug, keeps coffee warm for ages!' },
+          created_at: { type: 'string', example: '2026-06-10 08:15:00' },
         },
       },
       CartLine: {
@@ -154,6 +185,120 @@ export const openapi = {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Product' } } },
           },
           400: { description: 'Invalid product id', content: errContent() },
+          404: { description: 'Product not found', content: errContent() },
+        },
+      },
+    },
+    '/products/{id}/rating': {
+      get: {
+        tags: ['Ratings'],
+        summary: 'Get a product rating summary',
+        description: "Returns the product's average rating and rating count. Public.",
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer' }, example: 1 },
+        ],
+        responses: {
+          200: {
+            description: 'Rating summary',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/RatingSummary' } } },
+          },
+          400: { description: 'Invalid product id', content: errContent() },
+          404: { description: 'Product not found', content: errContent() },
+        },
+      },
+      post: {
+        tags: ['Ratings'],
+        summary: 'Rate a product',
+        description:
+          'Submits a 1–5 star rating. A user has at most one rating per product; rating again updates it.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer' }, example: 1 },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['rating'],
+                properties: {
+                  rating: { type: 'integer', minimum: 1, maximum: 5, example: 4 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Rating saved; returns the updated summary plus your rating.',
+            content: {
+              'application/json': {
+                schema: {
+                  allOf: [
+                    { $ref: '#/components/schemas/RatingSummary' },
+                    { type: 'object', properties: { your_rating: { type: 'integer', example: 4 } } },
+                  ],
+                },
+              },
+            },
+          },
+          400: { description: 'Invalid product id or rating', content: errContent() },
+          401: { description: 'Not authenticated', content: errContent() },
+          404: { description: 'Product not found', content: errContent() },
+        },
+      },
+    },
+    '/products/{id}/comments': {
+      get: {
+        tags: ['Comments'],
+        summary: 'List product comments',
+        description: 'Returns all comments for a product, newest first.',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer' }, example: 1 },
+        ],
+        responses: {
+          200: {
+            description: 'Comment list',
+            content: {
+              'application/json': {
+                schema: { type: 'array', items: { $ref: '#/components/schemas/Comment' } },
+              },
+            },
+          },
+          400: { description: 'Invalid product id', content: errContent() },
+          404: { description: 'Product not found', content: errContent() },
+        },
+      },
+      post: {
+        tags: ['Comments'],
+        summary: 'Post a comment',
+        description: 'Adds a comment (with an optional 1–5 star rating) to a product.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer' }, example: 1 },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['body'],
+                properties: {
+                  body: { type: 'string', maxLength: 2000, example: 'Great mug, keeps coffee warm!' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Comment created',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Comment' } } },
+          },
+          400: { description: 'Invalid product id or comment body', content: errContent() },
+          401: { description: 'Not authenticated', content: errContent() },
           404: { description: 'Product not found', content: errContent() },
         },
       },
