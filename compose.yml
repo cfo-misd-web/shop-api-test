@@ -14,12 +14,15 @@ services:
       DB_PATH: /data/db.sqlite
     volumes:
       - shop-db:/data
+      # Your product images — encoded into the catalog at seed time. Edit freely,
+      # no rebuild needed; just re-run `docker compose run --rm seed`.
+      - ./seed-images:/app/seed-images:ro
 
   api:
     build: .
     image: shop-api:latest
     ports:
-      - "3000:3000"
+      - "3200:3000"
     # DOMAIN and JWT_SECRET come from .env; DB_PATH/PORT are fixed for the container.
     env_file:
       - .env
