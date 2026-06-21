@@ -3,7 +3,13 @@
 //
 //   pnpm build && pnpm seed
 //
-// Run it any time to reset the catalog to a known state.
+// Images come from the ../seed-images folder: drop files named after the product
+// slug — `coffee-mug.jpg`, or `coffee-mug-1.png`, `coffee-mug-2.webp` for a
+// gallery. Each file is base64-encoded into a data-URI. Products with no matching
+// files fall back to generated SVG colour placeholders. Run any time to reset.
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db } from './db.js';
 
 interface SeedProduct {
@@ -11,7 +17,44 @@ interface SeedProduct {
   description: string;
   category: string;
   price_cents: number;
-  colors: string[]; // one image is generated per color
+  colors: string[]; // one placeholder image is generated per color when no files are supplied
+}
+
+// Folder where you drop real product images. Resolves to <project>/seed-images
+// both locally and in the container (dist lives one level below the project root).
+const IMAGE_DIR = fileURLToPath(new URL('../seed-images', import.meta.url));
+
+const MIME: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+};
+
+const slugify = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+// Read base64 data-URIs from seed-images for a product slug. Matches `<slug>` and
+// `<slug>-<n>` (any supported extension), sorted so `-1`, `-2`, … keep their order.
+function imagesFromFiles(slug: string): string[] {
+  if (!existsSync(IMAGE_DIR)) return [];
+  const re = new RegExp(`^${slug}(-\\d+)?$`, 'i');
+  return readdirSync(IMAGE_DIR)
+    .filter((f) => {
+      const ext = extname(f).toLowerCase();
+      return MIME[ext] && re.test(basename(f, ext));
+    })
+    .sort()
+    .map((f) => {
+      const ext = extname(f).toLowerCase();
+      const b64 = readFileSync(join(IMAGE_DIR, f)).toString('base64');
+      return `data:${MIME[ext]};base64,${b64}`;
+    });
 }
 
 // Build a small SVG placeholder and return it as a base64 data-URI.
@@ -64,10 +107,16 @@ const seed = db.transaction(() => {
   db.exec('DELETE FROM products');
   db.exec("DELETE FROM sqlite_sequence WHERE name = 'products'"); // reset ids to start at 1
   for (const p of PRODUCTS) {
-    const images = p.colors.map((c, i) => base64Image(`${p.name} ${i + 1}`, c));
+    const slug = slugify(p.name);
+    const fromFiles = imagesFromFiles(slug);
+    const images = fromFiles.length
+      ? fromFiles
+      : p.colors.map((c, i) => base64Image(`${p.name} ${i + 1}`, c));
     insert.run(p.name, p.description, JSON.stringify(images), p.category, p.price_cents);
+    const source = fromFiles.length ? `${fromFiles.length} file image(s)` : `${images.length} placeholder(s)`;
+    console.log(`  ${p.name} (${slug}): ${source}`);
   }
 });
 
 seed();
-console.log(`Seeded ${PRODUCTS.length} products with base64 images into db.sqlite`);
+console.log(`Seeded ${PRODUCTS.length} products into db.sqlite (images from ${IMAGE_DIR})`);

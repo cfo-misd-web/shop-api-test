@@ -1,0 +1,12 @@
+node_modules
+dist
+db.sqlite
+db.sqlite-*
+data.sqlite
+data.sqlite-*
+.git
+Dockerfile
+.dockerignore
+compose.yml
+.env
+.env.example

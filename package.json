@@ -9,6 +9,7 @@
     "seed": "node dist/seed.js",
     "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

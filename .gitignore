@@ -4,3 +4,4 @@ db.sqlite
 db.sqlite-*
 data.sqlite
 data.sqlite-*
+.env
