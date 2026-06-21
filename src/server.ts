@@ -18,18 +18,13 @@ app.get('/test', (_req: Request, res: Response) => {
   res.sendFile('test.html', { root: publicDir });
 });
 
-// CORS for localhost frontends used in integration tests. Auth is via the
-// Authorization header (Bearer JWT), so it must be in Allow-Headers. We reflect
-// any localhost / 127.0.0.1 origin (any port). No `cors` package.
-const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+// Open CORS: allow any origin so the API works from anywhere. Auth is via the
+// Authorization header (Bearer JWT), not cookies, so we don't set
+// Access-Control-Allow-Credentials and a wildcard origin is safe. No `cors` package.
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && LOCALHOST_ORIGIN.test(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  }
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(204);
     return;
